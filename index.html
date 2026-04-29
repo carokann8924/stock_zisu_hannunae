@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>글로벌 투자 지수 대시보드</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="container">
+      <h1>글로벌 투자 지수 대시보드</h1>
+      <p>NASDAQ · KOSPI · WTI 를 한눈에 확인하세요.</p>
+      <p class="notice">실시간 공개 시세를 조회합니다. 네트워크 또는 API 상태에 따라 지연될 수 있습니다.</p>
+    </header>
+
+    <main class="container grid" id="indices-grid"></main>
+
+    <footer class="container footer">
+      <button id="refresh-btn">새로고침</button>
+      <span id="updated-at">업데이트: -</span>
+    </footer>
+
+    <template id="index-card-template">
+      <article class="card">
+        <div class="card-header">
+          <h2 class="name"></h2>
+          <span class="symbol"></span>
+        </div>
+        <p class="price"></p>
+        <p class="change"></p>
+      </article>
+    </template>
+
+    <script src="script.js"></script>
+  </body>
+</html>
