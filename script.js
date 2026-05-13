@@ -21,6 +21,16 @@ const QUOTE_ENDPOINTS = [
   { name: "Yahoo via codetabs", url: `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(YAHOO_QUOTE_URL)}` },
 ];
 
+const FALLBACK_PRICES = {
+  NASDAQ: 18342.21,
+  KOSPI: 2758.41,
+  WTI: 79.18,
+};
+
+const YAHOO_QUOTE_URL = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(
+  INDEX_CONFIG.map((item) => item.yahooSymbol).join(","),
+)}`;
+
 function formatPrice(value, currency) {
   return new Intl.NumberFormat("ko-KR", {
     style: "currency",
