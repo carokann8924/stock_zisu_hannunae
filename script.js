@@ -10,6 +10,10 @@ const FALLBACK_PRICES = {
   WTI: 79.18,
 };
 
+const YAHOO_QUOTE_URL = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(
+  INDEX_CONFIG.map((item) => item.yahooSymbol).join(","),
+)}`;
+
 function formatPrice(value, currency) {
   return new Intl.NumberFormat("ko-KR", {
     style: "currency",
@@ -49,21 +53,37 @@ function setStatus(text, type = "") {
   status.className = type;
 }
 
-async function fetchLiveIndices() {
-  const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(
-    INDEX_CONFIG.map((item) => item.yahooSymbol).join(","),
-  )}`;
-
-  const response = await fetch(url);
+async function fetchQuoteJson(url) {
+  const response = await fetch(url, { cache: "no-store" });
   if (!response.ok) {
-    throw new Error(`시세 API 호출 실패 (${response.status})`);
+    throw new Error(`HTTP ${response.status}`);
+  }
+  return response.json();
+}
+
+async function fetchLiveIndices() {
+  let payload;
+  let source = "Yahoo direct";
+
+  try {
+    payload = await fetchQuoteJson(YAHOO_QUOTE_URL);
+  } catch (directError) {
+    const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(YAHOO_QUOTE_URL)}`;
+    try {
+      payload = await fetchQuoteJson(proxyUrl);
+      source = "Yahoo via AllOrigins proxy";
+    } catch (proxyError) {
+      throw new Error(`직접호출 실패(${directError.message}) / 프록시 실패(${proxyError.message})`);
+    }
   }
 
-  const payload = await response.json();
   const result = payload?.quoteResponse?.result ?? [];
-  const bySymbol = new Map(result.map((row) => [row.symbol, row]));
+  if (result.length === 0) {
+    throw new Error("응답 데이터가 비어 있습니다");
+  }
 
-  return INDEX_CONFIG.map((config) => {
+  const bySymbol = new Map(result.map((row) => [row.symbol, row]));
+  const mapped = INDEX_CONFIG.map((config) => {
     const row = bySymbol.get(config.yahooSymbol);
     const price = row?.regularMarketPrice ?? FALLBACK_PRICES[config.symbol];
     const change = row?.regularMarketChange ?? 0;
@@ -76,6 +96,8 @@ async function fetchLiveIndices() {
       change,
     };
   });
+
+  return { mapped, source };
 }
 
 async function refreshLiveData() {
@@ -84,9 +106,9 @@ async function refreshLiveData() {
   setStatus("실시간 지수를 불러오는 중...");
 
   try {
-    const indices = await fetchLiveIndices();
-    render(indices);
-    setStatus("실시간 지수 반영 완료", "ok");
+    const { mapped, source } = await fetchLiveIndices();
+    render(mapped);
+    setStatus(`실시간 지수 반영 완료 (${source})`, "ok");
   } catch (error) {
     const fallback = INDEX_CONFIG.map((config) => ({
       symbol: config.symbol,
