@@ -14,6 +14,23 @@ const YAHOO_QUOTE_URL = `https://query1.finance.yahoo.com/v7/finance/quote?symbo
   INDEX_CONFIG.map((item) => item.yahooSymbol).join(","),
 )}`;
 
+const QUOTE_ENDPOINTS = [
+  { name: "Yahoo direct", url: YAHOO_QUOTE_URL },
+  { name: "Yahoo via AllOrigins", url: `https://api.allorigins.win/raw?url=${encodeURIComponent(YAHOO_QUOTE_URL)}` },
+  { name: "Yahoo via corsproxy.io", url: `https://corsproxy.io/?${encodeURIComponent(YAHOO_QUOTE_URL)}` },
+  { name: "Yahoo via codetabs", url: `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(YAHOO_QUOTE_URL)}` },
+];
+
+const FALLBACK_PRICES = {
+  NASDAQ: 18342.21,
+  KOSPI: 2758.41,
+  WTI: 79.18,
+};
+
+const YAHOO_QUOTE_URL = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(
+  INDEX_CONFIG.map((item) => item.yahooSymbol).join(","),
+)}`;
+
 function formatPrice(value, currency) {
   return new Intl.NumberFormat("ko-KR", {
     style: "currency",
@@ -63,23 +80,26 @@ async function fetchQuoteJson(url) {
 
 async function fetchLiveIndices() {
   let payload;
-  let source = "Yahoo direct";
+  let source = "";
+  const errors = [];
 
-  try {
-    payload = await fetchQuoteJson(YAHOO_QUOTE_URL);
-  } catch (directError) {
-    const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(YAHOO_QUOTE_URL)}`;
+  for (const endpoint of QUOTE_ENDPOINTS) {
     try {
-      payload = await fetchQuoteJson(proxyUrl);
-      source = "Yahoo via AllOrigins proxy";
-    } catch (proxyError) {
-      throw new Error(`직접호출 실패(${directError.message}) / 프록시 실패(${proxyError.message})`);
+      payload = await fetchQuoteJson(endpoint.url);
+      source = endpoint.name;
+      break;
+    } catch (error) {
+      errors.push(`${endpoint.name}: ${error.message}`);
     }
+  }
+
+  if (!payload) {
+    throw new Error(errors.join(" / "));
   }
 
   const result = payload?.quoteResponse?.result ?? [];
   if (result.length === 0) {
-    throw new Error("응답 데이터가 비어 있습니다");
+    throw new Error(`${source}: 응답 데이터가 비어 있습니다`);
   }
 
   const bySymbol = new Map(result.map((row) => [row.symbol, row]));
