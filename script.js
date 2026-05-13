@@ -1,7 +1,24 @@
-const indices = [
-  { symbol: "NASDAQ", name: "NASDAQ Composite", currency: "USD", price: 18342.21, change: 120.52 },
-  { symbol: "KOSPI", name: "KOSPI", currency: "KRW", price: 2758.41, change: -15.78 },
-  { symbol: "WTI", name: "WTI Crude Oil", currency: "USD", price: 79.18, change: 1.44 },
+const INDEX_CONFIG = [
+  { symbol: "NASDAQ", name: "NASDAQ Composite", currency: "USD", yahooSymbol: "^IXIC" },
+  { symbol: "KOSPI", name: "KOSPI", currency: "KRW", yahooSymbol: "^KS11" },
+  { symbol: "WTI", name: "WTI Crude Oil", currency: "USD", yahooSymbol: "CL=F" },
+];
+
+const FALLBACK_PRICES = {
+  NASDAQ: 18342.21,
+  KOSPI: 2758.41,
+  WTI: 79.18,
+};
+
+const YAHOO_QUOTE_URL = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(
+  INDEX_CONFIG.map((item) => item.yahooSymbol).join(","),
+)}`;
+
+const QUOTE_ENDPOINTS = [
+  { name: "Yahoo direct", url: YAHOO_QUOTE_URL },
+  { name: "Yahoo via AllOrigins", url: `https://api.allorigins.win/raw?url=${encodeURIComponent(YAHOO_QUOTE_URL)}` },
+  { name: "Yahoo via corsproxy.io", url: `https://corsproxy.io/?${encodeURIComponent(YAHOO_QUOTE_URL)}` },
+  { name: "Yahoo via codetabs", url: `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(YAHOO_QUOTE_URL)}` },
 ];
 
 function formatPrice(value, currency) {
@@ -12,7 +29,7 @@ function formatPrice(value, currency) {
   }).format(value);
 }
 
-function render() {
+function render(indices, fetchedAt = new Date()) {
   const grid = document.getElementById("indices-grid");
   const tpl = document.getElementById("index-card-template");
   grid.innerHTML = "";
@@ -23,7 +40,8 @@ function render() {
     node.querySelector(".symbol").textContent = item.symbol;
     node.querySelector(".price").textContent = formatPrice(item.price, item.currency);
 
-    const pct = (item.change / (item.price - item.change)) * 100;
+    const base = item.price - item.change;
+    const pct = base !== 0 ? (item.change / base) * 100 : 0;
     const changeEl = node.querySelector(".change");
     const direction = item.change >= 0 ? "up" : "down";
     const sign = item.change >= 0 ? "+" : "";
@@ -33,18 +51,89 @@ function render() {
     grid.appendChild(node);
   }
 
-  document.getElementById("updated-at").textContent = `업데이트: ${new Date().toLocaleString("ko-KR")}`;
+  document.getElementById("updated-at").textContent = `업데이트: ${fetchedAt.toLocaleString("ko-KR")}`;
 }
 
-function refreshWithMockFluctuation() {
-  for (const item of indices) {
-    const noise = (Math.random() - 0.5) * (item.symbol === "KOSPI" ? 20 : 2);
-    item.price = Math.max(1, item.price + noise);
-    item.change = noise;
+function setStatus(text, type = "") {
+  const status = document.getElementById("status");
+  status.textContent = text;
+  status.className = type;
+}
+
+async function fetchQuoteJson(url) {
+  const response = await fetch(url, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
   }
-  render();
+  return response.json();
 }
 
-document.getElementById("refresh-btn").addEventListener("click", refreshWithMockFluctuation);
+async function fetchLiveIndices() {
+  let payload;
+  let source = "";
+  const errors = [];
 
-render();
+  for (const endpoint of QUOTE_ENDPOINTS) {
+    try {
+      payload = await fetchQuoteJson(endpoint.url);
+      source = endpoint.name;
+      break;
+    } catch (error) {
+      errors.push(`${endpoint.name}: ${error.message}`);
+    }
+  }
+
+  if (!payload) {
+    throw new Error(errors.join(" / "));
+  }
+
+  const result = payload?.quoteResponse?.result ?? [];
+  if (result.length === 0) {
+    throw new Error(`${source}: 응답 데이터가 비어 있습니다`);
+  }
+
+  const bySymbol = new Map(result.map((row) => [row.symbol, row]));
+  const mapped = INDEX_CONFIG.map((config) => {
+    const row = bySymbol.get(config.yahooSymbol);
+    const price = row?.regularMarketPrice ?? FALLBACK_PRICES[config.symbol];
+    const change = row?.regularMarketChange ?? 0;
+
+    return {
+      symbol: config.symbol,
+      name: config.name,
+      currency: config.currency,
+      price,
+      change,
+    };
+  });
+
+  return { mapped, source };
+}
+
+async function refreshLiveData() {
+  const button = document.getElementById("refresh-btn");
+  button.disabled = true;
+  setStatus("실시간 지수를 불러오는 중...");
+
+  try {
+    const { mapped, source } = await fetchLiveIndices();
+    render(mapped);
+    setStatus(`실시간 지수 반영 완료 (${source})`, "ok");
+  } catch (error) {
+    const fallback = INDEX_CONFIG.map((config) => ({
+      symbol: config.symbol,
+      name: config.name,
+      currency: config.currency,
+      price: FALLBACK_PRICES[config.symbol],
+      change: 0,
+    }));
+    render(fallback);
+    setStatus(`실시간 지수 조회 실패: ${error.message} (데모값 표시)`, "error");
+  } finally {
+    button.disabled = false;
+  }
+}
+
+document.getElementById("refresh-btn").addEventListener("click", refreshLiveData);
+
+refreshLiveData();

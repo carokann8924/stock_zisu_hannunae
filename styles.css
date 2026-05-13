@@ -74,3 +74,21 @@ button {
   padding: 0.6rem 1rem;
   cursor: pointer;
 }
+
+button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+#status {
+  font-size: 0.9rem;
+  color: #cbd5e1;
+}
+
+#status.ok {
+  color: #22c55e;
+}
+
+#status.error {
+  color: #f87171;
+}
