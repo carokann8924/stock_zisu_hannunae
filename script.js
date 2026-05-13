@@ -1,7 +1,7 @@
 const INDEX_CONFIG = [
-  { symbol: "NASDAQ", name: "NASDAQ Composite", currency: "USD", yahooSymbol: "^IXIC" },
-  { symbol: "KOSPI", name: "KOSPI", currency: "KRW", yahooSymbol: "^KS11" },
-  { symbol: "WTI", name: "WTI Crude Oil", currency: "USD", yahooSymbol: "CL=F" },
+  { symbol: "NASDAQ", name: "NASDAQ Composite", currency: "USD" },
+  { symbol: "KOSPI", name: "KOSPI", currency: "KRW" },
+  { symbol: "WTI", name: "WTI Crude Oil", currency: "USD" },
 ];
 
 const FALLBACK_PRICES = {
@@ -9,27 +9,6 @@ const FALLBACK_PRICES = {
   KOSPI: 2758.41,
   WTI: 79.18,
 };
-
-const YAHOO_QUOTE_URL = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(
-  INDEX_CONFIG.map((item) => item.yahooSymbol).join(","),
-)}`;
-
-const QUOTE_ENDPOINTS = [
-  { name: "Yahoo direct", url: YAHOO_QUOTE_URL },
-  { name: "Yahoo via AllOrigins", url: `https://api.allorigins.win/raw?url=${encodeURIComponent(YAHOO_QUOTE_URL)}` },
-  { name: "Yahoo via corsproxy.io", url: `https://corsproxy.io/?${encodeURIComponent(YAHOO_QUOTE_URL)}` },
-  { name: "Yahoo via codetabs", url: `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(YAHOO_QUOTE_URL)}` },
-];
-
-const FALLBACK_PRICES = {
-  NASDAQ: 18342.21,
-  KOSPI: 2758.41,
-  WTI: 79.18,
-};
-
-const YAHOO_QUOTE_URL = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(
-  INDEX_CONFIG.map((item) => item.yahooSymbol).join(","),
-)}`;
 
 function formatPrice(value, currency) {
   return new Intl.NumberFormat("ko-KR", {
@@ -70,54 +49,29 @@ function setStatus(text, type = "") {
   status.className = type;
 }
 
-async function fetchQuoteJson(url) {
-  const response = await fetch(url, { cache: "no-store" });
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`);
-  }
-  return response.json();
-}
-
 async function fetchLiveIndices() {
-  let payload;
-  let source = "";
-  const errors = [];
+  const response = await fetch("/api/indices", { cache: "no-store" });
+  if (!response.ok) throw new Error(`서버 응답 실패 (${response.status})`);
 
-  for (const endpoint of QUOTE_ENDPOINTS) {
-    try {
-      payload = await fetchQuoteJson(endpoint.url);
-      source = endpoint.name;
-      break;
-    } catch (error) {
-      errors.push(`${endpoint.name}: ${error.message}`);
-    }
+  const payload = await response.json();
+  if (!Array.isArray(payload.indices) || payload.indices.length === 0) {
+    const detail = payload.errors?.join(" / ") || "수집 데이터 없음";
+    throw new Error(detail);
   }
 
-  if (!payload) {
-    throw new Error(errors.join(" / "));
-  }
-
-  const result = payload?.quoteResponse?.result ?? [];
-  if (result.length === 0) {
-    throw new Error(`${source}: 응답 데이터가 비어 있습니다`);
-  }
-
-  const bySymbol = new Map(result.map((row) => [row.symbol, row]));
+  const bySymbol = new Map(payload.indices.map((row) => [row.symbol, row]));
   const mapped = INDEX_CONFIG.map((config) => {
-    const row = bySymbol.get(config.yahooSymbol);
-    const price = row?.regularMarketPrice ?? FALLBACK_PRICES[config.symbol];
-    const change = row?.regularMarketChange ?? 0;
-
+    const row = bySymbol.get(config.symbol);
     return {
       symbol: config.symbol,
       name: config.name,
       currency: config.currency,
-      price,
-      change,
+      price: row?.price ?? FALLBACK_PRICES[config.symbol],
+      change: row?.change ?? 0,
     };
   });
 
-  return { mapped, source };
+  return { mapped, errors: payload.errors || [] };
 }
 
 async function refreshLiveData() {
@@ -126,9 +80,10 @@ async function refreshLiveData() {
   setStatus("실시간 지수를 불러오는 중...");
 
   try {
-    const { mapped, source } = await fetchLiveIndices();
+    const { mapped, errors } = await fetchLiveIndices();
     render(mapped);
-    setStatus(`실시간 지수 반영 완료 (${source})`, "ok");
+    const partial = errors.length > 0 ? ` (일부 실패: ${errors.join(" | ")})` : "";
+    setStatus(`실시간 지수 반영 완료${partial}`, "ok");
   } catch (error) {
     const fallback = INDEX_CONFIG.map((config) => ({
       symbol: config.symbol,
@@ -145,5 +100,4 @@ async function refreshLiveData() {
 }
 
 document.getElementById("refresh-btn").addEventListener("click", refreshLiveData);
-
 refreshLiveData();
